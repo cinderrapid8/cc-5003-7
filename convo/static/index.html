@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影视拟音卷积工作台</title>
+<style>
+  :root { --bg:#14171d; --panel:#1e232c; --line:#2c333f; --fg:#e6e9ee;
+          --muted:#9aa4b2; --accent:#5aa2ff; --warn:#ffb454; --ok:#5fd08a;
+          --err:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,"Helvetica Neue",
+         "PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line);
+           display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header span { color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns: 380px 1fr; gap:18px; padding:18px 24px; }
+  @media (max-width: 980px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; padding:16px; }
+  .panel h2 { font-size:14px; margin:0 0 12px; color:var(--accent);
+              text-transform:uppercase; letter-spacing:.06em; }
+  label { display:block; margin:10px 0 4px; color:var(--muted); font-size:12px; }
+  input, select, button { font:inherit; }
+  input[type=number], input[type=text], select {
+    width:100%; background:#11151b; color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; padding:7px 9px; }
+  input[type=range] { width:100%; }
+  input[type=file] { width:100%; color:var(--muted); font-size:12px; }
+  button { background:var(--accent); color:#0b1626; border:0; border-radius:6px;
+           padding:8px 14px; font-weight:600; cursor:pointer; }
+  button.secondary { background:#2c333f; color:var(--fg); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .row { display:flex; gap:10px; }
+  .row > * { flex:1; }
+  .hint { font-size:11px; color:var(--muted); margin-top:3px; }
+  .seg { display:flex; gap:8px; }
+  .seg label { flex:1; border:1px solid var(--line); border-radius:6px;
+               padding:8px; text-align:center; cursor:pointer; margin:0;
+               color:var(--fg); font-size:12px; }
+  .seg input { display:none; }
+  .seg label.active { border-color:var(--accent); background:#1b2b40; }
+  #jobs { display:flex; flex-direction:column; gap:12px; }
+  .job { border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+         background:#181d25; }
+  .job .top { display:flex; justify-content:space-between; gap:8px;
+              align-items:center; }
+  .job .id { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); }
+  .badge { font-size:11px; padding:2px 8px; border-radius:99px; font-weight:600; }
+  .b-queued,.b-running { background:#274060; color:#9cc7ff; }
+  .b-completed { background:#1d3f2c; color:var(--ok); }
+  .b-failed { background:#4a2222; color:var(--err); }
+  .b-cancelled,.b-interrupted { background:#44382a; color:var(--warn); }
+  .meta { display:grid; grid-template-columns:repeat(2,1fr); gap:2px 14px;
+          margin:8px 0; font-size:12px; color:var(--muted); }
+  .meta b { color:var(--fg); font-weight:500; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .actions button { padding:6px 10px; font-size:12px; }
+  audio { width:100%; margin-top:8px; }
+  .errbox { color:var(--err); font-size:12px; margin-top:6px; white-space:pre-wrap; }
+  .tailnote { font-size:11px; color:var(--warn); margin-top:4px; }
+  .val { color:var(--fg); font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>影视拟音卷积工作台</h1>
+  <span>脚步 / 关门 / 金属碰撞 × 房间脉冲响应 · 分块频域卷积 · 后台渲染可下载</span>
+</header>
+<main>
+  <section class="panel">
+    <h2>渲染参数</h2>
+
+    <label>干声来源</label>
+    <div class="seg" id="srcSeg">
+      <label data-v="builtin" class="active">内置测试音<input type="radio" name="src" value="builtin" checked></label>
+      <label data-v="upload">上传 WAV<input type="radio" name="src" value="upload"></label>
+    </div>
+    <div id="builtinBox">
+      <label>测试音类型</label>
+      <select id="sound">
+        <option value="footsteps">脚步 (footsteps)</option>
+        <option value="door_close">关门 (door close)</option>
+        <option value="metal_clash">金属碰撞 (metal clash)</option>
+      </select>
+    </div>
+    <div id="uploadBox" hidden>
+      <label>干声 WAV 文件（1 或 2 声道）</label>
+      <input type="file" id="inputFile" accept=".wav,audio/wav">
+    </div>
+
+    <label>脉冲响应</label>
+    <div class="seg" id="irSeg">
+      <label data-v="synth" class="active">合成房间 IR<input type="radio" name="ir" value="synth" checked></label>
+      <label data-v="upload">上传 IR<input type="radio" name="ir" value="upload"></label>
+    </div>
+    <div id="irSynthBox">
+      <div class="row">
+        <div>
+          <label>RT60 (秒)</label>
+          <input type="number" id="irRt60" value="0.9" min="0.05" max="8" step="0.05">
+        </div>
+        <div>
+          <label>IR 采样率 (Hz)</label>
+          <select id="irSr">
+            <option>44100</option><option selected>48000</option>
+            <option>96000</option><option>22050</option><option>16000</option>
+          </select>
+        </div>
+      </div>
+      <label class="hint" style="display:flex;gap:6px;align-items:center;color:var(--fg)">
+        <input type="checkbox" id="irStereo" checked> 立体声 IR（左右去相关，不做单声道平均）
+      </label>
+    </div>
+    <div id="irUploadBox" hidden>
+      <label>IR WAV 文件</label>
+      <input type="file" id="irFile" accept=".wav,audio/wav">
+    </div>
+
+    <label>干湿比例 wet = <span class="val" id="wetVal">0.50</span>（dry = <span id="dryVal">0.50</span>）</label>
+    <input type="range" id="wet" min="0" max="1" step="0.01" value="0.5">
+
+    <label>预延迟 (ms)</label>
+    <input type="number" id="preDelay" value="0" min="0" max="500" step="1">
+
+    <label>尾部策略（输入结束 ≠ 混响结束）</label>
+    <select id="tailPolicy">
+      <option value="keep" selected>保留完整混响尾音（默认）</option>
+      <option value="truncate">在输入结束处截尾（我明确选择丢弃尾音）</option>
+    </select>
+    <div class="tailnote" id="tailNote"></div>
+
+    <label>声道映射</label>
+    <select id="channelMap">
+      <option value="auto" selected>自动（立体声 IR 默认 L→L / R→R 并行）</option>
+      <option value="parallel">parallel：xL*hL, xR*hR</option>
+      <option value="cross">cross：xR*hL, xL*hR</option>
+      <option value="explicit_input_downmix">显式输入降混（L+R 平均）</option>
+      <option value="explicit_ir_downmix">显式 IR 降混（仅在用户选择时平均 IR）</option>
+    </select>
+    <div class="hint">单声道输入 × 立体声 IR 会分别送入左右 IR；不会默认平均。</div>
+
+    <label>分块大小 B（FFT = 2B，留空自动）</label>
+    <select id="blockSize">
+      <option value="">自动</option>
+      <option>128</option><option>256</option><option>512</option>
+      <option selected>1024</option><option>2048</option><option>4096</option>
+    </select>
+
+    <div class="actions" style="margin-top:14px">
+      <button id="submitBtn">提交真实渲染任务</button>
+    </div>
+    <div class="errbox" id="formErr"></div>
+  </section>
+
+  <section class="panel">
+    <h2>渲染任务 <button class="secondary" id="refreshBtn" style="float:right;padding:4px 10px;font-size:12px">刷新</button></h2>
+    <div id="jobs"><div class="hint">尚无任务。提交后此处显示实时状态、输出长度与尾部摘要。</div></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { jobs: new Map(), timer: null };
+
+document.querySelectorAll('.seg').forEach(seg => {
+  seg.addEventListener('click', e => {
+    const lab = e.target.closest('label'); if (!lab) return;
+    seg.querySelectorAll('label').forEach(l => l.classList.remove('active'));
+    lab.classList.add('active');
+    if (seg.id === 'srcSeg') {
+      const v = lab.dataset.v;
+      $('builtinBox').hidden = v !== 'builtin';
+      $('uploadBox').hidden = v !== 'upload';
+    } else {
+      const v = lab.dataset.v;
+      $('irSynthBox').hidden = v !== 'synth';
+      $('irUploadBox').hidden = v !== 'upload';
+    }
+  });
+});
+$('wet').addEventListener('input', e => {
+  const w = parseFloat(e.target.value);
+  $('wetVal').textContent = w.toFixed(2);
+  $('dryVal').textContent = (1 - w).toFixed(2);
+});
+$('tailPolicy').addEventListener('change', e => {
+  $('tailNote').textContent = e.target.value === 'truncate'
+    ? '注意：截尾会丢弃输入结束之后的全部混响能量。' : '';
+});
+
+$('submitBtn').addEventListener('click', async () => {
+  $('formErr').textContent = '';
+  const fd = new FormData();
+  const src = document.querySelector('input[name=src]:checked').value;
+  if (src === 'builtin') fd.append('sound', $('sound').value);
+  else {
+    const f = $('inputFile').files[0];
+    if (!f) return $('formErr').textContent = '请选择干声 WAV 文件';
+    fd.append('input_file', f);
+  }
+  const ir = document.querySelector('input[name=ir]:checked').value;
+  if (ir === 'synth') {
+    fd.append('ir_rt60', $('irRt60').value);
+    fd.append('ir_stereo', $('irStereo').checked ? 'true' : 'false');
+    fd.append('ir_sr', $('irSr').value);
+  } else {
+    const f = $('irFile').files[0];
+    if (!f) return $('formErr').textContent = '请选择 IR WAV 文件';
+    fd.append('ir_file', f);
+  }
+  fd.append('wet_ratio', $('wet').value);
+  fd.append('pre_delay_ms', $('preDelay').value);
+  fd.append('tail_policy', $('tailPolicy').value);
+  fd.append('channel_map', $('channelMap').value);
+  if ($('blockSize').value) fd.append('block_size', $('blockSize').value);
+
+  $('submitBtn').disabled = true;
+  try {
+    const r = await fetch('/api/jobs', { method: 'POST', body: fd });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || ('HTTP ' + r.status));
+    poll();
+  } catch (e) {
+    $('formErr').textContent = '提交失败：' + e.message;
+  } finally {
+    $('submitBtn').disabled = false;
+  }
+});
+$('refreshBtn').addEventListener('click', poll);
+
+async function poll() {
+  try {
+    const r = await fetch('/api/jobs');
+    const data = await r.json();
+    renderJobs(data.jobs);
+    const active = data.jobs.some(j => ['queued', 'running'].includes(j.state));
+    if (active && !state.timer) state.timer = setInterval(poll, 800);
+    if (!active && state.timer) { clearInterval(state.timer); state.timer = null; }
+  } catch (e) { /* keep last good view */ }
+}
+
+function renderJobs(jobs) {
+  const box = $('jobs');
+  if (!jobs.length) {
+    box.innerHTML = '<div class="hint">尚无任务。</div>';
+    return;
+  }
+  box.innerHTML = '';
+  jobs.forEach(j => box.appendChild(jobCard(j)));
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function jobCard(j) {
+  const el = document.createElement('div');
+  el.className = 'job';
+  const p = j.params?.params || {};
+  const s = j.summary || {};
+  const inp = j.params?.input || {};
+  const ir = j.params?.impulse_response || {};
+  let html = `<div class="top">
+      <span class="id">${j.job_id.slice(0,8)} · ${esc(j.input_name)} × ${esc(j.ir_name)}</span>
+      <span class="badge b-${j.state}">${j.state}</span></div>
+    <div class="meta">
+      <div>输入：<b>${inp.channels ?? '?'}ch / ${inp.sample_rate ?? '?'}Hz / ${inp.samples ?? '?'} 样本</b></div>
+      <div>IR：<b>${ir.channels ?? '?'}ch / ${ir.sample_rate ?? '?'}Hz / ${ir.samples ?? '?'} 样本</b></div>
+      <div>wet/dry：<b>${p.wet_ratio ?? '?'} / ${(1-(p.wet_ratio ?? 1)).toFixed(2)}</b></div>
+      <div>预延迟：<b>${p.pre_delay_ms ?? 0} ms</b></div>
+      <div>声道映射：<b>${p.channel_map ?? 'auto'}</b></div>
+      <div>尾部策略：<b>${p.tail_policy ?? 'keep'}</b></div>`;
+  if (j.state === 'completed') {
+    html += `<div>输出长度：<b>${s.output_samples} 样本 / ${s.duration_s} s</b></div>
+      <div>输出声道：<b>${s.output_channels} @ ${s.sample_rate} Hz</b></div>
+      <div>保留尾音：<b>${s.tail_samples_kept} 样本</b></div>
+      <div>截掉尾音：<b>${s.tail_samples_cut} 样本</b></div>
+      <div>分块/FFT：<b>B=${s.block_size}, FFT=${s.fft_size}</b></div>
+      <div>峰值/声道：<b>${(s.peak_per_channel||[]).join(', ')}</b></div>`;
+  }
+  html += `</div>`;
+  if (j.error) html += `<div class="errbox">${esc(j.error)}</div>`;
+  if (j.state === 'completed') {
+    html += `<audio controls preload="none" src="/api/jobs/${j.job_id}/output"></audio>`;
+  }
+  html += `<div class="actions">`;
+  if (j.state === 'queued' || j.state === 'running') {
+    html += `<button data-act="cancel" data-id="${j.job_id}">取消渲染</button>`;
+  }
+  if (['failed', 'cancelled', 'interrupted'].includes(j.state)) {
+    html += `<button data-act="rerun" data-id="${j.job_id}" class="secondary">按快照重跑</button>`;
+  }
+  if (j.state === 'completed') {
+    html += `<button data-act="download" data-id="${j.job_id}">下载音轨 WAV</button>`;
+  }
+  html += `<button data-act="snapshot" data-id="${j.job_id}" class="secondary">参数快照</button>
+    <button data-act="in" data-id="${j.job_id}" class="secondary">干声</button>
+    <button data-act="ir" data-id="${j.job_id}" class="secondary">IR</button>
+  </div><div class="errbox" id="act-${j.job_id}"></div>`;
+  el.innerHTML = html;
+
+  el.querySelectorAll('button[data-act]').forEach(btn => {
+    btn.addEventListener('click', () => action(btn.dataset.act, btn.dataset.id, btn));
+  });
+  return el;
+}
+
+async function action(act, id, btn) {
+  const errEl = $('act-' + id);
+  errEl.textContent = '';
+  try {
+    if (act === 'download' || act === 'in' || act === 'ir') {
+      const path = act === 'download' ? 'output' : act;
+      window.open(`/api/jobs/${id}/${path}`, '_blank');
+      return;
+    }
+    if (act === 'snapshot') {
+      const r = await fetch(`/api/jobs/${id}/snapshot`);
+      const d = await r.json();
+      errEl.style.color = 'var(--muted)';
+      errEl.textContent = JSON.stringify(d, null, 2);
+      return;
+    }
+    btn.disabled = true;
+    const r = await fetch(`/api/jobs/${id}/${act}`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+    poll();
+  } catch (e) {
+    errEl.style.color = 'var(--err)';
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+poll();
+</script>
+</body>
+</html>
