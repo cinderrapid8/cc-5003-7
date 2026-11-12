@@ -37,6 +37,14 @@ SUPPORTED_MAPS = {
     ),
 }
 
+# channel_map="auto" resolves to these; each must appear in SUPPORTED_MAPS.
+AUTO_MAP_DEFAULTS = {
+    (1, 1): "mono",
+    (1, 2): "mono_input_stereo_ir",
+    (2, 1): "stereo_input_mono_ir",
+    (2, 2): "parallel",
+}
+
 
 class PipelineError(ValueError):
     pass
@@ -106,13 +114,7 @@ def _check(cancel: Callable[[], bool] | None) -> None:
 def _resolve_map(in_ch: int, ir_ch: int, requested: str) -> str:
     allowed = SUPPORTED_MAPS[(in_ch, ir_ch)]
     if requested == "auto":
-        defaults = {
-            (1, 1): "mono",
-            (1, 2): "mono_input_stereo_ir",
-            (2, 1): "stereo_input_mono_ir",
-            (2, 2): "parallel",
-        }
-        return defaults[(in_ch, ir_ch)]
+        return AUTO_MAP_DEFAULTS[(in_ch, ir_ch)]
     if requested not in allowed:
         raise PipelineError(
             f"channel_map {requested!r} is not valid for {in_ch}ch input + "
